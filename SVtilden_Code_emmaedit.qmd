@@ -1,0 +1,707 @@
+---
+title: "SVtilden_Code_emmaedit"
+format: pdf
+---
+
+# Required packages to run script. If not on computer download and install.
+``` {r}
+library(ggplot2)
+library(lubridate)
+library(reshape2)
+library(data.table)
+library(dplyr)
+library(gridExtra)
+library(zoo)
+library(plotly)
+library(gridExtra)
+library(data.table)
+library(slider)
+library(tidyverse)
+```
+
+# Code from Campbell sci to keep header, remove NANs, convert timestamp to correct format, and add column for file name as ID, 
+``` {r}
+importCSdata <- function(filename,RetOpt="data"){
+  if(RetOpt=="info"){
+    # bring in entire header of CSI TOA5 data file for metadata
+    stn.info <- scan(file=filename,nlines=4,what=character(),sep="\r")
+    return(stn.info)
+  } else {
+    # second line of header contains variable names
+    header <- scan(file=filename,skip=1,nlines=1,what=character(),sep=",")
+    # bring in data
+    stn.data <- read.table(file=filename,skip=4,header=FALSE, na.strings=c("NAN"),sep=",")
+    names(stn.data) <- header
+    # add column of R-formatted date/timestamps
+    stn.data$TIMESTAMP <- as.POSIXct(strptime(stn.data$TIMESTAMP,format="%m/%d/%Y %H:%M", tz="us/pacific"))
+    stn.data$ID<-basename(filename)
+    return(stn.data)}}
+
+#set working directory
+setwd("C:/Users/emmam/Downloads/senior thesis/DataForWorking")
+
+# import all .dat files within folder
+filenames=list.files(path=getwd(),pattern="[.]csv", recursive=T)
+
+# bring in the files in a list using the Campbell function
+list <- lapply(filenames, importCSdata)
+
+#Combine all files in the list into a data frame. Select fill=T to merge files with different column numbers
+data <-rbindlist(list, fill = TRUE)
+
+#convert to data table
+data <- data.table(data)
+
+# Remove duplicates from data.
+data <- data[!duplicated(data),]
+
+#Order file based on timestamp
+data<-data[order(TIMESTAMP),]
+
+
+##SoilVUE
+#Select columns for SoilVUE
+SVburnt<-cbind(data[,c(1,69:356)])
+
+#This will make it so there's only ONE column for temp, as opposed to various columns (goes from wide to long table format). Keep information that is pertinent to identify temp like timestamp and PP
+sv <- SVburnt %>%
+  melt(id.vars=c( "TIMESTAMP"), value.name="num")
+
+sv=data.table(sv)
+```
+
+
+# Breakup variable name so we can extract plot and sensor info
+``` {r}
+sv[, c("rest", "plot","depth","avg"):= tstrsplit(variable, "_", fixed=TRUE)]
+sv$rest<-NULL
+
+#assign similar column names as above
+
+#Paired plot info
+
+sv[, PP := as.character(NA)]
+
+# Assign paired plot (PP) values based on 'plot' column
+sv[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
+sv[, PP := fifelse(plot == "BH2" | plot == "BC2", "2", PP)]
+sv[, PP := fifelse(plot == "BH3" | plot == "BC3", "3", PP)]
+sv[, PP := fifelse(plot == "BH4" | plot == "BC4", "4", PP)]
+
+# Map NB plots to their PP values
+sv[, PP := fifelse(plot == "NB1", "5", PP)]
+sv[, PP := fifelse(plot == "NB2", "6", PP)]
+sv[, PP := fifelse(plot == "NB3", "7", PP)]
+sv[, PP := fifelse(plot == "NB4", "8", PP)]
+
+#assign trt
+sv$trt<-NA
+sv[, trt := ifelse(plot=="BH1"|plot=="BH2"|plot=="BH3"|plot=="BH4", "H", trt)]
+sv[, trt := ifelse(plot=="BC1"|plot=="BC2"|plot=="BC3"|plot=="BC4", "C", trt)]
+sv[, trt := ifelse(plot=="NB1"|plot=="NB2"|plot=="NB3"|plot=="NB4", "H", trt)]
+
+#assign measurement type
+sv$measurement<-NA
+sv[, measurement := ifelse(avg=="Avg(1)", "moisture", measurement)]
+sv[, measurement := ifelse(avg=="Avg(2)", "permitivity", measurement)]
+sv[, measurement := ifelse(avg=="Avg(3)", "temp", measurement)]
+sv[, measurement := ifelse(avg=="Avg(4)", "EC", measurement)]
+
+#subset temp
+temp.sv<- subset(sv, measurement=="temp")
+moisture.sv <- subset(sv, measurement=="moisture")
+#Remove instrument noise
+temp.sv[, num := ifelse(num<(-5), NA, num)]
+temp.sv[, num := ifelse(num>40, NA, num)]
+
+temp.sv$PP<- as.numeric(temp.sv$PP)
+moisture.sv$PP <- as.numeric(moisture.sv$PP)
+
+#setting depths
+temp.sv$depth <- factor(temp.sv$depth, labels=c("5", "10", "20","30", "40","50"))
+moisture.sv$depth <- factor(moisture.sv$depth, labels=c("5", "10", "20","30", "40","50"))
+temp.sv$trt <- factor(temp.sv$trt,levels = c("H", "C"))
+moisture.sv$trt <- factor(moisture.sv$trt, levels = c("H", "C"))
+temp.sv <- temp.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
+moisture.sv <- moisture.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
+
+
+# Filter for H and C treatments separately
+t_h_sv <- temp.sv %>% filter(trt == "H")
+m_h_sv <- moisture.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
+t_c_sv <- temp.sv %>% filter(trt == "C")
+m_c_sv <- moisture.sv %>% filter(trt == "C") %>% mutate(PP = as.double(PP))
+
+
+# Join H and C datasets based on TIMESTAMP, depth, and PP
+t_diff_sv <- t_h_sv %>%
+  inner_join(t_c_sv, by = c("TIMESTAMP", "depth", "PP")) %>%
+  mutate(diff_H_C = num.x - num.y) %>%  # Calculate differences for each depth
+  select(TIMESTAMP, depth, PP, diff_H_C)  # Select relevant column
+tempdiffbymoisture <- t_diff_sv %>%
+  inner_join(m_h_sv, by = c("TIMESTAMP", "depth", "PP")) %>% 
+  select(TIMESTAMP, depth, PP, diff_H_C, num)
+temp_filtered_Burned <- temp.sv %>% filter(PP %in% 1:4)
+moisture_filtered_Burned <- moisture.sv %>% filter(PP %in% 1:4)
+
+temp_filtered_Unburned <- temp.sv %>% filter(PP %in% 5:8)
+moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
+```
+
+# Plots
+``` {r}
+#SCATTERPLOT FOR TEMPDIFF BY MOISTURE CONTENT
+tempdiffbymoisture %>%
+  filter(PP == 1) %>%
+  ggplot(aes(x = num, y = diff_H_C)) +
+  geom_point(alpha = 0.7, color = "blue") +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Moisture Number (num)",
+    y = "Temperature Difference (Heated - Control)",
+    title = "Scatter Plot of Temp Diff vs Moisture by Depth (PP = 1)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+``` {r} 
+#HISTOGRAM FOR DISTRIBUTION OF TEMP DIFFERENCE
+library(dplyr)
+library(ggplot2)
+
+tempdiffbymoisture %>%
+  filter(PP == 1) %>%
+  ggplot(aes(x = diff_H_C)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black", alpha = 0.7) +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature Difference (Heated - Control)",
+    y = "Frequency",
+    title = "Temp Diff (PP = 1)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+
+``` {r}
+# KEEP
+#Raw Temp data SoilVUE
+ggplot(temp_filtered_Burned, aes(x = TIMESTAMP, y = num, color = trt)) +
+  geom_point(shape = 16, size = 1) + 
+  ylab(expression("Temperature (degree*C)")) +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),  # Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic"),
+    legend.title = element_blank()  # Remove legend title
+  ) +
+  guides(color = guide_legend(title = FALSE)) +  # Remove legend title
+  facet_grid(PP ~ depth) +
+  ggtitle("SoilVUE Controlled and Heated Temperature Burned Plots 1-4") +
+  scale_color_manual(values = c("red","blue"))
+```
+
+
+# Plot 1 heated 
+``` {r}
+#Only for plot one because we only heated PP 1
+ggplot(temp_filtered_Burned, 
+       aes(x = TIMESTAMP, y = num, color = trt)) +
+  geom_point(shape = 16, size = 1) + 
+  ylab(expression("Temperature (degree*C)")) +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size=14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size=14),
+    axis.title.x = element_text(size=14),
+    axis.title.y = element_text(size=14),
+    strip.text = element_text(size=12, color="black", face="italic"),
+    legend.title = element_blank()
+  ) +
+  guides(color = guide_legend(title = FALSE)) +
+  facet_wrap(. ~ depth, ncol = 1) +  # Only facet by depth now
+  ggtitle("SoilVUE Controlled and Heated Temperature Burned Plot 1") +
+  scale_color_manual(values = c("red", "blue"))
+```
+
+``` {r}
+#Raw Temp data SoilVUE
+ggplot(temp_filtered_Unburned, aes(x = TIMESTAMP, y = num, color = trt)) +
+  geom_point(shape = 16, size = 1) + 
+  ylab(expression("Temperature (degree*C)")) +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),  # Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic"),
+    legend.title = element_blank()  # Remove legend title
+  ) +
+  guides(color = guide_legend(title = FALSE)) +  # Remove legend title
+  facet_grid(PP ~ depth) +
+  ggtitle("SoilVUE Controlled Temperature Unburned Plots 1-4") +
+  scale_color_manual(values = c("red","blue"))
+  #ggsave("C:/Program Files/RStudio/Tilden Park Warming/Graphs/SoilVUE Controlled Temperature Unburned Plots 1-4.jpg", width=15,height=10)
+# ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/Research Paper/SoilVUE Controlled and Heated Temperature Plots 1-3.jpg", width=15, height=10)
+```
+  
+  
+  
+```{r}
+# Temperature timeseries BH1
+t_h_sv |>
+  filter(PP == 1) |>
+  ggplot(aes(x = TIMESTAMP, y = num)) +
+  geom_point(shape = 16, size = 1, color = "red") +
+  ylab(expression("Temperature (degree*C)")) +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),  # Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic"),
+    legend.title = element_blank()  # Remove legend title
+  ) +
+  guides(color = guide_legend(title = FALSE)) +  # Remove legend title
+  facet_grid(~ depth) +
+  ggtitle("Temperature Timeseries Burned Heated Plot 1")
+
+
+t_c_sv |>
+  filter(PP == 1) |>
+  ggplot(aes(x = TIMESTAMP, y = num)) +
+  geom_point(shape = 16, size = 1, color = "blue") +
+  ylab(expression("Temperature (degree*C)")) +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),  # Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic"),
+    legend.title = element_blank()  # Remove legend title
+  ) +
+  guides(color = guide_legend(title = FALSE)) +  # Remove legend title
+  facet_grid(~ depth) +
+  ggtitle("Temperature Timeseries Burned Control Plot 1")
+
+```
+
+# Summary statistics function and calculations
+``` {r}
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+
+# Convert TIMESTAMP to datetime if it's not already
+temp.sv$TIMESTAMP <- as.POSIXct(temp.sv$TIMESTAMP)
+
+# Ensure depth, trt, and PP are factors if they are categorical
+temp.sv$depth <- as.factor(temp.sv$depth)
+temp.sv$trt <- as.factor(temp.sv$trt)
+temp.sv$PP <- as.factor(temp.sv$PP)
+
+# Step 1: Calculate summary statistics for each group
+summary_sv <- temp.sv %>%
+  dplyr::group_by(TIMESTAMP, depth, trt, PP) %>%
+  dplyr::summarise(
+    num = mean(num, na.rm = TRUE),  # Calculate mean of 'num' within each group
+  )
+
+# Step 2: Calculate overall mean, sd, and se values per group (TIMESTAMP, depth, trt)
+summary_final_sv <- summary_sv %>%
+  dplyr::group_by(TIMESTAMP, depth, trt) %>%
+  dplyr::summarise(
+    mean = mean(num, na.rm = TRUE),  # Calculate mean of 'mean' within each group
+    sd = sd(num, na.rm = TRUE),      # Calculate sd of 'num' within each group
+    se = sd(num, na.rm = TRUE) / sqrt(sum(!is.na(num)))  # Calculate se of 'num' within each group
+  )
+```
+
+# Temp Difference between Burned and Unburned
+```{r}
+# Compute paired differences between H and C treatments within the same PP
+# pivot so H and C are side-by-side and compute difference
+paired_diff_df <- temp.sv %>%
+  filter(!is.na(PP) & !is.na(depth) & !is.na(trt)) %>%
+  group_by(TIMESTAMP, depth, PP, trt) %>%
+  summarise(mean_num = mean(num, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = trt, values_from = mean_num, names_prefix = "mean_") %>%
+  # require both mean_H and mean_C to be present for a paired diff
+  filter(!is.na(mean_H) & !is.na(mean_C)) %>%
+  mutate(
+    diff_num = mean_H - mean_C,
+    PP = factor(PP),
+    depth = factor(depth)
+  )
+
+# quick plot (paired diffs)
+p_diff <- paired_diff_df %>%
+  arrange(PP, depth, TIMESTAMP) %>%
+  ggplot(aes(x = TIMESTAMP, y = diff_num, group = PP, color = PP)) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1) +
+  facet_grid(PP ~ depth) +
+  coord_cartesian(ylim = c(-10, 10)) +
+  labs(x = "Date", y = "Temperature Difference (H - C)", title = "Paired Plot Temperature Difference") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -45, hjust = 0))
+
+p_diff
+```
+
+
+```{r}
+#MOISTURE DIFF BETWEEN BURNED AND UNBURNED
+# Step 1: Summarize Burned data
+newburned <- moisture_filtered_Burned %>% filter(trt != "H")
+burned_summary <- newburned %>%
+  group_by(TIMESTAMP, depth) %>%
+  summarize(mean_num_burned = mean(num, na.rm = TRUE), .groups = "drop")
+
+# Step 2: Summarize Unburned data
+unburned_summary <- moisture_filtered_Unburned %>%
+  group_by(TIMESTAMP, depth) %>%
+  summarize(mean_num_unburned = mean(num, na.rm = TRUE), .groups = "drop")
+
+# Step 3: Merge the two summaries by TIMESTAMP and Depth (inner join to get shared ones)
+moist_compare <- inner_join(burned_summary, unburned_summary, by = c("TIMESTAMP", "depth"))
+
+# Step 2: Reshape from wide to long format
+long_df <- moist_compare %>%
+  pivot_longer(cols = c(mean_num_burned, mean_num_unburned),
+               names_to = "condition",
+               values_to = "mean_moisture") %>%
+  mutate(condition = recode(condition,
+                            mean_num_burned = "Burned",
+                            mean_num_unburned = "Unburned"))
+
+# Step 3: Plot burned and unburned on same plot
+ggplot(long_df, aes(x = TIMESTAMP, y = mean_moisture, color = condition)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ depth, scales = "free_y") +
+  labs(
+    x = "Timestamp",
+    y = "Mean Moisture",
+    color = "Condition"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.text = element_text(size=20),
+    legend.title = element_text(size=20),
+    axis.text.x = element_text(size=20, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size=20),
+    axis.title.x = element_text(size=20),
+    axis.title.y = element_text(size=20),
+    strip.text = element_text(size=18, color="black", face="italic")
+  )
+
+```
+
+``` {r}
+#standard deviation all depths
+ggplot(summary_final_sv, aes(x = TIMESTAMP, y = mean, colour = trt)) +
+  geom_point(size = 0.5) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, fill = trt), alpha = 0.5, colour = NA) +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_fill_manual(values = c("C" = "blue", "H" = "red")) +
+  ylab("Mean Temp (degree*C)") +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  facet_grid(~depth) +
+  ggtitle("SoilVUE Mean Temperature & Standard Deviation Plots 1-3") +
+  scale_x_datetime(breaks = "8 days", date_labels = "%b-%d") +
+  theme(axis.text.x = element_text(angle = -45)) +
+  labs(color = NULL, fill = NULL)
+```
+
+``` {r}
+#KEEP 
+#standard deviation plots 30 cm depth
+summary_final_sv_30cm <- subset(summary_final_sv, depth == '30')
+
+ggplot(summary_final_sv_30cm, aes(x = TIMESTAMP, y = mean, colour = trt)) +
+  geom_point(size = 0.5) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, fill = trt), alpha = 0.5, colour = NA) +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_fill_manual(values = c("C" = "blue", "H" = "red")) +
+  ylab("Temperature (degree*C)") +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  ggtitle("SoilVUE Temperature Standard Deviation Plot for 30 cm Depth") +
+  scale_x_datetime(breaks = "8 days", date_labels = "%b-%d") +
+  theme(axis.text.x = element_text(angle = -45)) +
+  labs(color = NULL, fill = NULL)
+```
+
+
+
+``` {r}
+#Keep
+# moisture H and C (raw)
+ggplot(moisture.sv, aes(x=TIMESTAMP, y=num, colour=trt)) +
+  geom_point(shape=16, size=1) + 
+  ylab(expression("Moisture Content")) +
+  xlab("Date") +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  ggtitle("SoilVUE Moisture Plots 1-4") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  guides(colour = guide_legend(title = NULL)) +
+  facet_grid(PP~depth)
+  
+  #ggsave("C:/Program Files/RStudio/Tilden Park Warming/Graphs/SoilVUE Moisture Plots 1-4.jpg", width=15,height=10)
+# ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/Research Paper/SoilVUE Moisture Plots 1-3.pdf.jpg", width=15, height=10)
+
+library(ggplot2)
+
+# Filter the data for PP 3
+moisture.sv_PP3 <- subset(moisture.sv, PP == 3)
+```
+
+``` {r}
+#Keep 
+# Create raw data plot 3
+ggplot(moisture.sv_PP3, aes(x=TIMESTAMP, y=num, colour=trt)) +
+  geom_point(shape=5, size=0.5) + 
+  ylab(expression("Moisture Content")) +
+  xlab("Date") +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  #  scale_x_datetime(
+  #   date_breaks = "10 days",       # Set break intervals to 20 days
+  #    date_labels = "%d %b"       # Format the date labels
+  # ) +
+  ggtitle("SoilVUE Moisture Plot 3") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 12, angle = -45, vjust = 0.5),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  guides(colour = guide_legend(title = NULL)) +
+  facet_grid(. ~ depth)
+# ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/SoilVUE Moisture Plot 3.pdf", width=10, height=5)
+# ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/SoilVUE Moisture Plot 3.jpg", width=10, height=5)
+
+
+moisture_num <- moisture.sv$num
+
+names(temp.sv) <- c("TIMESTAMP", "variable", "temp_num", "plot", "depth", "avg", "PP", "trt", "measurement")
+
+temp_moisture_sv <- cbind(temp.sv, moisture_num = moisture.sv$num)
+
+
+#Keep 
+# Temp vs moisture 
+ggplot(temp_moisture_sv, aes(x = temp_num, y = moisture_num, colour = trt)) +
+  geom_point(shape = 1, size = 0.75) +
+  ylab(expression("Soil Moisture")) +
+  xlab("Temperature (degree*C)") +
+  labs(title = "SoilVUE Temperature vs Moisture Plots 1-3") +
+  theme_bw() +
+  facet_grid(PP ~ depth) +
+  scale_color_manual(values = c("C" = "blue", "H" = "red"))
+# ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/SoilVUE Temperature vs Moisture Plots 1-3.pdf", width=15,height=10,dpi=300)
+
+
+summary.moisture2 <- moisture.sv %>%
+  dplyr::group_by(TIMESTAMP,depth, trt) %>%
+  dplyr::summarise(
+    N=length(num),
+    mean= mean(num, na.rm=T),
+    sd=sd(num, na.rm=T),
+    se=sd(num, na.rm=T)/sqrt(sum(!is.na(num))))
+
+
+#KEEP
+#standard deviation moisture 
+ggplot(summary.moisture2, aes(x = TIMESTAMP, y = mean, colour = trt)) +
+  geom_point(size = 1) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, fill = trt), alpha = 0.5, colour = NA) +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_fill_manual(values = c("C" = "blue", "H" = "red")) +
+  ylab("Moisture Content") +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  facet_grid(~depth) +
+  ggtitle("SoilVUE Moisture Mean & Standard Deviation Plots 1-3") +
+  scale_x_datetime(breaks = "8 days", date_labels = "%b-%d") +
+  theme(axis.text.x = element_text(angle = -45)) +
+  labs(color = NULL, fill = NULL)
+
+
+
+#SoilVUE Electrical Conductivity
+EC.sv<- subset(sv, measurement=="EC")
+
+
+EC.sv$PP<- as.numeric(EC.sv$PP)
+
+unique(EC.sv$depth)
+EC.sv$depth <- factor(EC.sv$depth, labels=c("5 cm", "10 cm", "20 cm","30 cm", "40 cm","50 cm"))
+
+
+#KEEP
+# EC H and C (raw)
+ggplot(EC.sv, aes(x=TIMESTAMP, y=num, colour=trt)) +
+  geom_point(size=0.5) + 
+  ylab(expression("Electrical Conductivity (dS/m)")) +
+  xlab("Date") +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_x_datetime(
+    date_breaks = "20 days",       # Set break intervals to 20 days
+    date_labels = "%d %b"       # Format the date labels
+  ) +
+  ggtitle("SoilVUE Electrical Conductivity Plots 1-3") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  guides(colour = guide_legend(title = NULL)) +
+  facet_grid(PP~depth)
+
+
+summary.EC2 <- EC.sv %>%
+  dplyr::group_by(TIMESTAMP,depth, trt) %>%
+  dplyr::summarise(
+    N=length(num),
+    mean= mean(num, na.rm=T),
+    sd=sd(num, na.rm=T),
+    se=sd(num, na.rm=T)/sqrt(sum(!is.na(num))))
+
+
+#KEEP
+#Standard deviation all depths
+ggplot(summary.EC2, aes(x = TIMESTAMP, y = mean, colour = trt)) +
+  geom_point(size = 1) +
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd, fill = trt), alpha = 0.5, colour = NA) +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_fill_manual(values = c("C" = "blue", "H" = "red")) +
+  ylab("Electrical Conductivity (dS/m)") +
+  xlab("Date") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  facet_grid(~depth) +
+  ggtitle("SoilVUE Electrical Conductivity Mean & Standard Deviation Plots 1-3") +
+  scale_x_datetime(breaks = "8 days", date_labels = "%b-%d") +
+  theme(axis.text.x = element_text(angle = -45)) +
+  labs(color = NULL, fill = NULL)
+
+
+#SoilVUE Permitivity
+PER.sv<- subset(sv, measurement=="permitivity")
+
+
+PER.sv$PP<- as.numeric(PER.sv$PP)
+
+unique(PER.sv$depth)
+PER.sv$depth <- factor(PER.sv$depth, labels=c("5 cm", "10 cm", "20 cm","30 cm", "40 cm","50 cm"))
+
+
+#KEEP
+# EC H and C (raw)
+ggplot(PER.sv, aes(x=TIMESTAMP, y=num, colour=trt)) +
+  geom_point(size=0.5) + 
+  ylab(expression("Permittivity (ɛ)")) +
+  xlab("Date") +
+  scale_color_manual(values = c("C" = "blue", "H" = "red")) +
+  scale_x_datetime(
+    date_breaks = "20 days",       # Set break intervals to 20 days
+    date_labels = "%d %b"       # Format the date labels
+  ) +
+  ggtitle("SoilVUE Permittivity Plots 1-3") +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size=14),
+    axis.text.x = element_text(size= 14),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size=14),  # Increase x-axis label font size
+    axis.title.y = element_text(size=14),# Increase y-axis label font size
+    strip.text = element_text(size = 12, color = "black", face = "italic")
+  ) +
+  guides(colour = guide_legend(title = NULL)) +
+  facet_grid(PP~depth)
+#  ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/SoilVUE Moisture Plots 1-3.pdf", width=15, height=10)
+ # ggsave("C:/Program Files/RStudio/Task 5 Microwarming/Plots/Research Paper/SoilVUE Permittivity Plots 1-3.jpg", width=15, height=10)
+```
+
+
