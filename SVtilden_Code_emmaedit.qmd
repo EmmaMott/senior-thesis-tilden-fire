@@ -19,8 +19,11 @@ library(slider)
 library(tidyverse)
 ```
 
+
+
 # Code from Campbell sci to keep header, remove NANs, convert timestamp to correct format, and add column for file name as ID, 
 ``` {r}
+
 importCSdata <- function(filename,RetOpt="data"){
   if(RetOpt=="info"){
     # bring in entire header of CSI TOA5 data file for metadata
@@ -70,46 +73,76 @@ sv <- SVburnt %>%
 sv=data.table(sv)
 ```
 
+```{r}
+#new data from jan
+
+raw <- read_csv("C:/Users/emmam/Downloads/senior thesis/20250922_20260114.csv")
+
+# Remove duplicates from data.
+new <- raw[!duplicated(raw),]
+
+
+##SoilVUE
+#Select columns for SoilVUE
+SVnew<-cbind(new[,c(1,69:356)])
+
+# Convert new data to data.table format
+jan_sv <- as.data.table(SVnew)
+
+# Melt using data.table syntax (wide to long)
+jan <- data.table::melt(jan_sv, 
+                        id.vars = "TIMESTAMP", 
+                        value.name = "num")
+
+# --- FIX: Parse jan's TIMESTAMP to POSIXct before rbindlist ---
+jan$TIMESTAMP <- as.POSIXct(strptime(jan$TIMESTAMP, format = "%m/%d/%Y %H:%M", tz = "US/Pacific"))                        
+
+# Ensure both sv and jan have the same column names and types
+jan$variable <- as.character(jan$variable)
+sv$variable <- as.character(sv$variable)
+
+# Bind the two tables together
+sv_combined <- rbindlist(list(sv, jan), fill = TRUE)
+
+# Parse variable names (same as before)
+sv_combined[, c("rest", "plot", "depth", "avg") := tstrsplit(variable, "_", fixed = TRUE)]
+sv_combined$rest <- NULL
+
+# Assign PP, trt, measurement (same logic as before)
+sv_combined[, PP := as.character(NA)]
+sv_combined[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
+sv_combined[, PP := fifelse(plot == "BH2" | plot == "BC2", "2", PP)]
+sv_combined[, PP := fifelse(plot == "BH3" | plot == "BC3", "3", PP)]
+sv_combined[, PP := fifelse(plot == "BH4" | plot == "BC4", "4", PP)]
+sv_combined[, PP := fifelse(plot == "NB1", "5", PP)]
+sv_combined[, PP := fifelse(plot == "NB2", "6", PP)]
+sv_combined[, PP := fifelse(plot == "NB3", "7", PP)]
+sv_combined[, PP := fifelse(plot == "NB4", "8", PP)]
+
+sv_combined$trt <- NA
+sv_combined[, trt := ifelse(plot == "BH1" | plot == "BH2" | plot == "BH3" | plot == "BH4", "H", trt)]
+sv_combined[, trt := ifelse(plot == "BC1" | plot == "BC2" | plot == "BC3" | plot == "BC4", "C", trt)]
+sv_combined[, trt := ifelse(plot == "NB1" | plot == "NB2" | plot == "NB3" | plot == "NB4", "H", trt)]
+
+sv_combined$measurement <- NA
+sv_combined[, measurement := ifelse(avg == "Avg(1)", "moisture", measurement)]
+sv_combined[, measurement := ifelse(avg == "Avg(2)", "permitivity", measurement)]
+sv_combined[, measurement := ifelse(avg == "Avg(3)", "temp", measurement)]
+sv_combined[, measurement := ifelse(avg == "Avg(4)", "EC", measurement)]
+
+# Replace sv with the combined table for downstream processing
+sv <- sv_combined
+
+# Continue with temp/moisture subsetting as before
+temp.sv <- subset(sv, measurement == "temp")
+moisture.sv <- subset(sv, measurement == "moisture")
+
+```
+
+
 
 # Breakup variable name so we can extract plot and sensor info
 ``` {r}
-sv[, c("rest", "plot","depth","avg"):= tstrsplit(variable, "_", fixed=TRUE)]
-sv$rest<-NULL
-
-#assign similar column names as above
-
-#Paired plot info
-
-sv[, PP := as.character(NA)]
-
-# Assign paired plot (PP) values based on 'plot' column
-sv[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
-sv[, PP := fifelse(plot == "BH2" | plot == "BC2", "2", PP)]
-sv[, PP := fifelse(plot == "BH3" | plot == "BC3", "3", PP)]
-sv[, PP := fifelse(plot == "BH4" | plot == "BC4", "4", PP)]
-
-# Map NB plots to their PP values
-sv[, PP := fifelse(plot == "NB1", "5", PP)]
-sv[, PP := fifelse(plot == "NB2", "6", PP)]
-sv[, PP := fifelse(plot == "NB3", "7", PP)]
-sv[, PP := fifelse(plot == "NB4", "8", PP)]
-
-#assign trt
-sv$trt<-NA
-sv[, trt := ifelse(plot=="BH1"|plot=="BH2"|plot=="BH3"|plot=="BH4", "H", trt)]
-sv[, trt := ifelse(plot=="BC1"|plot=="BC2"|plot=="BC3"|plot=="BC4", "C", trt)]
-sv[, trt := ifelse(plot=="NB1"|plot=="NB2"|plot=="NB3"|plot=="NB4", "H", trt)]
-
-#assign measurement type
-sv$measurement<-NA
-sv[, measurement := ifelse(avg=="Avg(1)", "moisture", measurement)]
-sv[, measurement := ifelse(avg=="Avg(2)", "permitivity", measurement)]
-sv[, measurement := ifelse(avg=="Avg(3)", "temp", measurement)]
-sv[, measurement := ifelse(avg=="Avg(4)", "EC", measurement)]
-
-#subset temp
-temp.sv<- subset(sv, measurement=="temp")
-moisture.sv <- subset(sv, measurement=="moisture")
 #Remove instrument noise
 temp.sv[, num := ifelse(num<(-5), NA, num)]
 temp.sv[, num := ifelse(num>40, NA, num)]
@@ -150,23 +183,12 @@ moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
 
 # Plots
 ``` {r}
-#SCATTERPLOT FOR TEMPDIFF BY MOISTURE CONTENT
-tempdiffbymoisture %>%
-  filter(PP == 1) %>%
-  ggplot(aes(x = num, y = diff_H_C)) +
-  geom_point(alpha = 0.7, color = "blue") +
-  facet_wrap(~ depth) +
-  labs(
-    x = "Moisture Number (num)",
-    y = "Temperature Difference (Heated - Control)",
-    title = "Scatter Plot of Temp Diff vs Moisture by Depth (PP = 1)"
-  ) +
-  theme(
-    strip.text = element_text(size = 12, face = "italic"),
-    axis.text = element_text(size = 10),
-    axis.title = element_text(size = 12),
-    plot.title = element_text(size = 14, face = "bold")
-  )
+#scatterplot of temp difference between burned and unburned plots by depth
+
+temp.sv |>
+  ggplot(aes(x = num))
+  geom_histogram()
+
 ```
 
 ``` {r} 
@@ -349,6 +371,44 @@ summary_final_sv <- summary_sv %>%
     sd = sd(num, na.rm = TRUE),      # Calculate sd of 'num' within each group
     se = sd(num, na.rm = TRUE) / sqrt(sum(!is.na(num)))  # Calculate se of 'num' within each group
   )
+```
+
+```{r}
+# ...existing code...
+
+# --- REPLACE from line ~356: paired diffs between burned (PP 1-4) and unburned (PP 5-8) ---
+paired_diff_pp <- temp.sv %>%
+  filter(PP %in% 1:8, !is.na(depth), !is.na(PP), !is.na(num)) %>%
+  mutate(
+    pair = if_else(as.integer(PP) <= 4L, as.integer(PP), as.integer(PP) - 4L),
+    side = if_else(as.integer(PP) <= 4L, "burned", "unburned")
+  ) %>%
+  group_by(TIMESTAMP, depth, pair, side) %>%
+  summarise(mean_num = mean(num, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = side, values_from = mean_num) %>%
+  # keep only pairs where both burned and unburned exist
+  filter(!is.na(burned) & !is.na(unburned)) %>%
+  mutate(
+    diff_burn_unburn = burned - unburned,
+    pair = factor(pair),
+    depth = factor(depth)
+  ) %>%
+  arrange(pair, depth, TIMESTAMP)
+
+# quick paired plot (keep y-limits -10..10)
+p_diff_pp <- paired_diff_pp %>%
+  ggplot(aes(x = TIMESTAMP, y = diff_burn_unburn, group = pair, color = pair)) +
+  geom_line(size = 0.6) +
+  geom_point(size = 1) +
+  facet_grid(pair ~ depth) +
+  coord_cartesian(ylim = c(-10, 10)) +
+  labs(x = "Date", y = "Temperature Difference (Burned - Unburned)", title = "Paired Plot Temp Diff (burned vs unburned)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -45, hjust = 0))
+
+p_diff_pp
+
+# ...existing code...
 ```
 
 # Temp Difference between Burned and Unburned
