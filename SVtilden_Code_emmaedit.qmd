@@ -73,6 +73,7 @@ sv <- SVburnt %>%
 sv=data.table(sv)
 ```
 
+# bringing in the new data up to january and formatting it to match old
 ```{r}
 #new data from jan
 
@@ -100,7 +101,10 @@ jan$TIMESTAMP <- as.POSIXct(strptime(jan$TIMESTAMP, format = "%m/%d/%Y %H:%M", t
 # Ensure both sv and jan have the same column names and types
 jan$variable <- as.character(jan$variable)
 sv$variable <- as.character(sv$variable)
+```
 
+# joining data set to be continuous from nov 2024 to jan 2026
+``` {r}
 # Bind the two tables together
 sv_combined <- rbindlist(list(sv, jan), fill = TRUE)
 
@@ -186,7 +190,7 @@ moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
 #scatterplot of temp difference between burned and unburned plots by depth
 
 temp.sv |>
-  ggplot(aes(x = num))
+  ggplot(aes(x = num))+
   geom_histogram()
 
 ```
@@ -373,10 +377,9 @@ summary_final_sv <- summary_sv %>%
   )
 ```
 
-```{r}
-# ...existing code...
+# Temp diff between burned and unburned 
+```{r, fig.width=16, fig.height=10}
 
-# --- REPLACE from line ~356: paired diffs between burned (PP 1-4) and unburned (PP 5-8) ---
 paired_diff_pp <- temp.sv %>%
   filter(PP %in% 1:8, !is.na(depth), !is.na(PP), !is.na(num)) %>%
   mutate(
@@ -408,11 +411,91 @@ p_diff_pp <- paired_diff_pp %>%
 
 p_diff_pp
 
-# ...existing code...
 ```
 
-# Temp Difference between Burned and Unburned
+# histogram of temp diff between burned and unburned
 ```{r}
+paired_diff_pp %>%
+  filter(pair == 1) %>%
+  ggplot(aes(x = diff_burn_unburn)) +
+  geom_histogram(binwidth = 0.5, fill = "red", color = "red", alpha = 0.7) +
+  facet_wrap(~ depth) +
+  coord_cartesian(xlim = c(-5, 5)) +
+  labs(
+    x = "Temperature Difference (Burned - Unburned)",
+    y = "Frequency",
+    title = "Temp Diff (PP = 1)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+```{r}
+paired_diff_pp %>%
+  filter(pair == 2) %>%
+  ggplot(aes(x = diff_burn_unburn)) +
+  geom_histogram(binwidth = 0.5, fill = "#87AE73", color = "#87AE73", alpha = 0.7) +
+  facet_wrap(~ depth) +
+  coord_cartesian(xlim = c(-5, 5)) +
+  labs(
+    x = "Temperature Difference (Burned - Unburned)",
+    y = "Frequency",
+    title = "Temp Diff (PP = 2)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+```{r}
+paired_diff_pp %>%
+  filter(pair == 3) %>%
+  ggplot(aes(x = diff_burn_unburn)) +
+  geom_histogram(binwidth = 0.5, fill = "#54d4ebff", color = "#54d4ebff", alpha = 0.7) +
+  facet_wrap(~ depth) +
+  coord_cartesian(xlim = c(-5, 5)) +
+  labs(
+    x = "Temperature Difference (Burned - Unburned)",
+    y = "Frequency",
+    title = "Temp Diff (PP = 3)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+```{r}
+paired_diff_pp %>%
+  filter(pair == 4) %>%
+  ggplot(aes(x = diff_burn_unburn)) +
+  geom_histogram(binwidth = 0.5, fill = "#ab71ecff", color = "#ab71ecff", alpha = 0.7) +
+  facet_wrap(~ depth) +
+  coord_cartesian(xlim = c(-5, 5)) +
+  labs(
+    x = "Temperature Difference (Burned - Unburned)",
+    y = "Frequency",
+    title = "Temp Diff (PP = 4)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+# Temp Difference between Heated and Unheated
+```{r, fig.width=16, fig.height=10}
 # Compute paired differences between H and C treatments within the same PP
 # pivot so H and C are side-by-side and compute difference
 paired_diff_df <- temp.sv %>%
