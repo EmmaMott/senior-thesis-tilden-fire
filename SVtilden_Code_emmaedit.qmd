@@ -187,7 +187,7 @@ moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
 
 # Plots
 ``` {r}
-#scatterplot of temp difference between burned and unburned plots by depth
+#scatterplot of temp across all depths and treatments
 
 temp.sv |>
   ggplot(aes(x = num))+
@@ -376,6 +376,55 @@ summary_final_sv <- summary_sv %>%
     se = sd(num, na.rm = TRUE) / sqrt(sum(!is.na(num)))  # Calculate se of 'num' within each group
   )
 ```
+
+```{r}
+# Partition timeseries into daytime and nighttime windows
+temp.sv$hour <- hour(temp.sv$TIMESTAMP)
+
+# Define windows: daytime 6:00-20:00, nighttime 20:00-6:00
+temp_day <- temp.sv %>%
+  filter(hour >= 6 & hour < 20, !is.na(num), !is.na(depth)) %>%
+  mutate(window = "Daytime (6:00-20:00)")
+
+temp_night <- temp.sv %>%
+  filter(hour >= 20 | hour < 6, !is.na(num), !is.na(depth)) %>%
+  mutate(window = "Nighttime (20:00-6:00)")
+
+# Combine
+temp_windows <- rbind(temp_day, temp_night)
+
+# Overlapping density plot by depth and treatment
+ggplot(temp_windows, aes(x = num, fill = window, color = window)) +
+  geom_density(alpha = 0.4, size = 1) +
+  facet_grid(depth ~ trt) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Density",
+    title = "Baseline Temperature Distribution: Daytime vs Nighttime",
+    fill = "Time Window",
+    color = "Time Window"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+# Optional: summary stats by window, depth, treatment
+window_summary <- temp_windows %>%
+  group_by(window, depth, trt) %>%
+  summarise(
+    mean_temp = mean(num, na.rm = TRUE),
+    sd_temp = sd(num, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+window_summary
+```
+
 
 # Temp diff between burned and unburned 
 ```{r, fig.width=16, fig.height=10}
