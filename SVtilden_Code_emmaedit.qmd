@@ -190,6 +190,7 @@ moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
 #HISTOGRAM FOR DISTRIBUTION OF TEMP DIFFERENCE heated - control
 library(dplyr)
 library(ggplot2)
+# keep
 
 tempdiffbymoisture %>%
   filter(PP == 1) %>%
