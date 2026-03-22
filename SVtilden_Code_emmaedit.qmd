@@ -101,17 +101,17 @@ jan$TIMESTAMP <- as.POSIXct(strptime(jan$TIMESTAMP, format = "%m/%d/%Y %H:%M", t
 # Ensure both sv and jan have the same column names and types
 jan$variable <- as.character(jan$variable)
 sv$variable <- as.character(sv$variable)
-```
 
-# joining data set to be continuous from nov 2024 to jan 2026
-``` {r}
 # Bind the two tables together
 sv_combined <- rbindlist(list(sv, jan), fill = TRUE)
 
 # Parse variable names (same as before)
 sv_combined[, c("rest", "plot", "depth", "avg") := tstrsplit(variable, "_", fixed = TRUE)]
 sv_combined$rest <- NULL
+```
 
+# assigning treatments etc
+``` {r}
 # Assign PP, trt, measurement (same logic as before)
 sv_combined[, PP := as.character(NA)]
 sv_combined[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
@@ -140,7 +140,7 @@ sv <- sv_combined
 # Continue with temp/moisture subsetting as before
 temp.sv <- subset(sv, measurement == "temp")
 moisture.sv <- subset(sv, measurement == "moisture")
-
+ec.sv <- subset(sv, measurement == "EC")
 ```
 
 
@@ -150,39 +150,259 @@ moisture.sv <- subset(sv, measurement == "moisture")
 #Remove instrument noise
 temp.sv[, num := ifelse(num<(-5), NA, num)]
 temp.sv[, num := ifelse(num>40, NA, num)]
+ec.sv[, num := ifelse(num==(-9999), NA, num)] #may 2025 powershutoff all have this value as placeholder, remove this data
 
 temp.sv$PP<- as.numeric(temp.sv$PP)
 moisture.sv$PP <- as.numeric(moisture.sv$PP)
+ec.sv$PP <- as.numeric(ec.sv$PP)
 
 #setting depths
 temp.sv$depth <- factor(temp.sv$depth, labels=c("5", "10", "20","30", "40","50"))
 moisture.sv$depth <- factor(moisture.sv$depth, labels=c("5", "10", "20","30", "40","50"))
+ec.sv$depth <- factor(ec.sv$depth, labels=c("5", "10", "20","30", "40","50"))
+
+#setting treatments
 temp.sv$trt <- factor(temp.sv$trt,levels = c("H", "C"))
 moisture.sv$trt <- factor(moisture.sv$trt, levels = c("H", "C"))
+ec.sv$trt <- factor(ec.sv$trt, levels = c("H", "C"))
+
+#remove missing data
 temp.sv <- temp.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
 moisture.sv <- moisture.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
-
+ec.sv <- ec.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
 
 # Filter for H and C treatments separately
-t_h_sv <- temp.sv %>% filter(trt == "H")
-m_h_sv <- moisture.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
-t_c_sv <- temp.sv %>% filter(trt == "C")
-m_c_sv <- moisture.sv %>% filter(trt == "C") %>% mutate(PP = as.double(PP))
-
+#t_h_sv <- temp.sv %>% filter(trt == "H")
+#m_h_sv <- moisture.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
+#t_c_sv <- temp.sv %>% filter(trt == "C")
+#m_c_sv <- moisture.sv %>% filter(trt == "C") %>% mutate(PP = as.double(PP))
+#e_h_sv <- ec.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
+#e_c_sv <- ec.sv %>% filter(trt == "C")
 
 # Join H and C datasets based on TIMESTAMP, depth, and PP
-t_diff_sv <- t_h_sv %>%
-  inner_join(t_c_sv, by = c("TIMESTAMP", "depth", "PP")) %>%
-  mutate(diff_H_C = num.x - num.y) %>%  # Calculate differences for each depth
-  select(TIMESTAMP, depth, PP, diff_H_C)  # Select relevant column
-tempdiffbymoisture <- t_diff_sv %>%
-  inner_join(m_h_sv, by = c("TIMESTAMP", "depth", "PP")) %>% 
-  select(TIMESTAMP, depth, PP, diff_H_C, num)
+#t_diff_sv <- t_h_sv %>%
+#  inner_join(t_c_sv, by = c("TIMESTAMP", "depth", "PP")) %>%
+#  mutate(diff_H_C = num.x - num.y) %>%  # Calculate differences for each depth
+#  select(TIMESTAMP, depth, PP, diff_H_C)  # Select relevant column
+
+#tempdiffbymoisture <- t_diff_sv %>%
+ # inner_join(m_h_sv, by = c("TIMESTAMP", "depth", "PP")) %>% 
+  #select(TIMESTAMP, depth, PP, diff_H_C, num)
+
 temp_filtered_Burned <- temp.sv %>% filter(PP %in% 1:4)
 moisture_filtered_Burned <- moisture.sv %>% filter(PP %in% 1:4)
 
 temp_filtered_Unburned <- temp.sv %>% filter(PP %in% 5:8)
 moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
+```
+
+# Figure 1: histograms of nonburned plot temps
+```{r}
+temp.sv |>
+  filter(plot == "NB1") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Nonburned Plot 1"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "NB2") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Nonburned Plot 2")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "NB3") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Nonburned Plot 3")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "NB4") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Nonburned Plot 4")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+# Figure 2: histograms of burned control plot temps
+
+```{r}
+temp.sv |>
+  filter(plot == "BC1") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Control Plot 1"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BC2") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Control Plot 2")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BC3") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Control Plot 3")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BC4") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Control Plot 4")+
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BH2") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Heat Plot 2"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BH3") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Heat Plot 3"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+temp.sv |>
+  filter(plot == "BH4") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Heat Plot 4"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )  
+```
+
+# Figure 3: histogram of heated plot
+
+```{r}
+temp.sv |>
+  filter(plot == "BH1") |>
+  ggplot(aes(x = num))+
+  geom_histogram(binwidth = 0.5)+
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature",
+    y = "Frequency",
+    title = "Temp of Burned Heat Plot 1"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "italic"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )  
 ```
 
 
