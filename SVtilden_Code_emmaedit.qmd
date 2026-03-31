@@ -21,7 +21,7 @@ library(tidyverse)
 
 
 
-# Code from Campbell sci to keep header, remove NANs, convert timestamp to correct format, and add column for file name as ID, 
+# Reading in pre-cleaned CSV and converting to data table
 ``` {r}
 
 #set working directory
@@ -56,8 +56,7 @@ sv <- data.table::melt(SVburnt,
 sv[, c("rest", "plot", "depth", "avg") := tstrsplit(variable, "_", fixed = TRUE)]
 
 # Inspect unique values in avg column
-unique(sv$avg)
-table(sv$avg, useNA = "ifany")
+unique(sv$avg) #average is now labelled as Avg.1., Avg.2., etc. which we can use to identify which measurement type it is (temp, moisture, etc.)
 
 # Remove the original variable column if desired
 sv[, variable := NULL]
@@ -217,6 +216,29 @@ temp.sv |>
     axis.text = element_text(size = 10),
     axis.title = element_text(size = 12),
     plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+# Columns of histograms for nonburned plots, with depths in rows
+```{r}
+# Plot all nonburned plots with depths in rows, plots in columns
+temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4")) %>%
+  ggplot(aes(x = num)) +
+  geom_histogram(binwidth = 0.5, fill = "darkgreen", color = "darkgreen")+
+  facet_grid(depth ~ plot) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Frequency",
+    title = "Nonburned Plots Temperature Distribution by Depth"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = -45, hjust = 0),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
   )
 ```
 
