@@ -151,7 +151,7 @@ temp_filtered_Unburned <- temp.sv %>% filter(PP %in% 5:8)
 moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
 ```
 
-# Figure 1: histograms of nonburned plot temps
+# Figure 1: histograms of nonburned plot temps broken up
 ```{r}
 temp.sv |>
   filter(plot == "NB1") |>
@@ -219,7 +219,7 @@ temp.sv |>
   )
 ```
 
-# Columns of histograms for nonburned plots, with depths in rows
+# Figure 1 
 ```{r}
 # Plot all nonburned plots with depths in rows, plots in columns
 temp.sv %>%
@@ -242,7 +242,34 @@ temp.sv %>%
   )
 ```
 
-# Figure 2: histograms of burned control plot temps
+# Figure 2: Average NB 
+```{r}
+nonburnt_avg <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4")) %>%
+  group_by(TIMESTAMP, depth) %>%
+  summarise(mean_num = mean(num, na.rm = TRUE), .groups = "drop")
+
+nonburnt_avg |>
+  ggplot(aes(x = mean_num)) +
+  geom_histogram(binwidth = 0.5, fill = "darkgreen", color = "darkgreen") +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Frequency",
+    title = "Nonburned Plots Average Temperature Distribution by Depth"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = -45, hjust = 0),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+```
+
+# Figure 3 broken up: histograms of burned control plot temps
 
 ```{r}
 temp.sv |>
@@ -362,7 +389,56 @@ temp.sv |>
   )  
 ```
 
-# Figure 3: histogram of heated plot
+# Figure 3
+```{r}
+temp.sv %>%
+  filter(plot %in% c("BC1", "BC2", "BC3", "BC4", "BH2", "BH3", "BH4")) %>%
+  ggplot(aes(x = num)) +
+  geom_histogram(binwidth = 0.5, fill = "darkblue", color = "darkblue")+
+  facet_grid(depth ~ plot) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Frequency",
+    title = "Burned Plots Temperature Distribution by Depth"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = -45, hjust = 0),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+```
+
+# Figure 4: Averaged burned plots
+```{r}
+burnt_avg <- temp.sv %>%
+  filter(plot %in% c("BC1", "BC2", "BC3", "BC4", "BH2", "BH3", "BH4")) %>%
+  group_by(TIMESTAMP, depth) %>%
+  summarise(mean_num = mean(num, na.rm = TRUE), .groups = "drop")
+
+burnt_avg |>
+  ggplot(aes(x = mean_num)) +
+  geom_histogram(binwidth = 0.5, fill = "darkblue", color = "darkblue") +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Frequency",
+    title = "Burned Plots Average Temperature Distribution by Depth"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = -45, hjust = 0),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+```
+
+# Figure 5: histogram of heated plot (n=1) 
 
 ```{r}
 temp.sv |>
@@ -383,6 +459,35 @@ temp.sv |>
   )  
 ```
 
+# Figure 6: Average Burned - Average Nonburned
+```{r}
+temp_diff <- burnt_avg |>
+  inner_join(nonburnt_avg, by = c("TIMESTAMP", "depth"), suffix = c("_burned", "_nonburned"))
+temp_diff <- temp_diff |>
+  mutate(diff_burn_nonburn = mean_num_burned - mean_num_nonburned, TIMESTAMP = as.POSIXct(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "America/Los_Angeles")) |>
+  arrange(TIMESTAMP, depth)
+
+
+# quick paired plot (keep y-limits -10..10)
+p_diff_pp <- temp_diff %>%
+  ggplot(aes(x = TIMESTAMP, y = diff_burn_nonburn, group = depth, color= depth)) +
+  geom_line(linewidth = 0.6) +
+  geom_point(size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.3) +
+  facet_grid(. ~ depth) +
+  coord_cartesian(ylim = c(-10, 10)) +
+  scale_x_datetime(
+    date_breaks = "3 months",
+    date_labels = "%b"
+  )+
+  labs(x = "Date", y = "Average Burned - Average Nonburned", title = "Average Temp Diff (burned vs unburned)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+  legend.position = "none")
+
+p_diff_pp
+
+```
 
 ``` {r} 
 #HISTOGRAM FOR DISTRIBUTION OF TEMP DIFFERENCE heated - control
