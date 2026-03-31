@@ -24,35 +24,11 @@ library(tidyverse)
 # Code from Campbell sci to keep header, remove NANs, convert timestamp to correct format, and add column for file name as ID, 
 ``` {r}
 
-importCSdata <- function(filename,RetOpt="data"){
-  if(RetOpt=="info"){
-    # bring in entire header of CSI TOA5 data file for metadata
-    stn.info <- scan(file=filename,nlines=4,what=character(),sep="\r")
-    return(stn.info)
-  } else {
-    # second line of header contains variable names
-    header <- scan(file=filename,skip=1,nlines=1,what=character(),sep=",")
-    # bring in data
-    stn.data <- read.table(file=filename,skip=4,header=FALSE, na.strings=c("NAN"),sep=",")
-    names(stn.data) <- header
-    # add column of R-formatted date/timestamps
-    stn.data$TIMESTAMP <- as.POSIXct(strptime(stn.data$TIMESTAMP,format="%m/%d/%Y %H:%M", tz="us/pacific"))
-    stn.data$ID<-basename(filename)
-    return(stn.data)}}
-
 #set working directory
 setwd("C:/Users/emmam/Downloads/senior thesis/DataForWorking")
 
-# import all .dat files within folder
-filenames=list.files(path=getwd(),pattern="[.]csv", recursive=T)
-
-# bring in the files in a list using the Campbell function
-list <- lapply(filenames, importCSdata)
-
-#Combine all files in the list into a data frame. Select fill=T to merge files with different column numbers
-data <-rbindlist(list, fill = TRUE)
-
 #convert to data table
+data <- read.csv("20260325_Tilden_Data_foremma.csv", header = TRUE)
 data <- data.table(data)
 
 # Remove duplicates from data.
@@ -70,79 +46,59 @@ SVburnt<-cbind(data[,c(1,69:356)])
 sv <- SVburnt %>%
   melt(id.vars=c( "TIMESTAMP"), value.name="num")
 
-sv=data.table(sv)
+# After melting to long format
+sv <- data.table::melt(SVburnt, 
+                       id.vars = "TIMESTAMP", 
+                       value.name = "num")
+
+# Parse the variable column into plot, depth, and avg
+# Expected format: "PLOT_DEPTH_Avg(X)" e.g., "BH1_1_Avg(1)"
+sv[, c("rest", "plot", "depth", "avg") := tstrsplit(variable, "_", fixed = TRUE)]
+
+# Inspect unique values in avg column
+unique(sv$avg)
+table(sv$avg, useNA = "ifany")
+
+# Remove the original variable column if desired
+sv[, variable := NULL]
+
 ```
 
-# bringing in the new data up to january and formatting it to match old
-```{r}
-#new data from jan
-
-raw <- read_csv("C:/Users/emmam/Downloads/senior thesis/20250922_20260114.csv")
-
-# Remove duplicates from data.
-new <- raw[!duplicated(raw),]
-
-
-##SoilVUE
-#Select columns for SoilVUE
-SVnew<-cbind(new[,c(1,69:356)])
-
-# Convert new data to data.table format
-jan_sv <- as.data.table(SVnew)
-
-# Melt using data.table syntax (wide to long)
-jan <- data.table::melt(jan_sv, 
-                        id.vars = "TIMESTAMP", 
-                        value.name = "num")
-
-# --- FIX: Parse jan's TIMESTAMP to POSIXct before rbindlist ---
-jan$TIMESTAMP <- as.POSIXct(strptime(jan$TIMESTAMP, format = "%m/%d/%Y %H:%M", tz = "US/Pacific"))                        
-
-# Ensure both sv and jan have the same column names and types
-jan$variable <- as.character(jan$variable)
-sv$variable <- as.character(sv$variable)
-
-# Bind the two tables together
-sv_combined <- rbindlist(list(sv, jan), fill = TRUE)
-
-# Parse variable names (same as before)
-sv_combined[, c("rest", "plot", "depth", "avg") := tstrsplit(variable, "_", fixed = TRUE)]
-sv_combined$rest <- NULL
-```
 
 # assigning treatments etc
+
 ``` {r}
-# Assign PP, trt, measurement (same logic as before)
-sv_combined[, PP := as.character(NA)]
-sv_combined[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
-sv_combined[, PP := fifelse(plot == "BH2" | plot == "BC2", "2", PP)]
-sv_combined[, PP := fifelse(plot == "BH3" | plot == "BC3", "3", PP)]
-sv_combined[, PP := fifelse(plot == "BH4" | plot == "BC4", "4", PP)]
-sv_combined[, PP := fifelse(plot == "NB1", "5", PP)]
-sv_combined[, PP := fifelse(plot == "NB2", "6", PP)]
-sv_combined[, PP := fifelse(plot == "NB3", "7", PP)]
-sv_combined[, PP := fifelse(plot == "NB4", "8", PP)]
+# Now assign PP, trt, measurement using the parsed columns
+sv[, PP := as.character(NA)]
+sv[, PP := fifelse(plot == "BH1" | plot == "BC1", "1", PP)]
+sv[, PP := fifelse(plot == "BH2" | plot == "BC2", "2", PP)]
+sv[, PP := fifelse(plot == "BH3" | plot == "BC3", "3", PP)]
+sv[, PP := fifelse(plot == "BH4" | plot == "BC4", "4", PP)]
+sv[, PP := fifelse(plot == "NB1", "5", PP)]
+sv[, PP := fifelse(plot == "NB2", "6", PP)]
+sv[, PP := fifelse(plot == "NB3", "7", PP)]
+sv[, PP := fifelse(plot == "NB4", "8", PP)]
 
-sv_combined$trt <- NA
-sv_combined[, trt := ifelse(plot == "BH1" | plot == "BH2" | plot == "BH3" | plot == "BH4", "H", trt)]
-sv_combined[, trt := ifelse(plot == "BC1" | plot == "BC2" | plot == "BC3" | plot == "BC4", "C", trt)]
-sv_combined[, trt := ifelse(plot == "NB1" | plot == "NB2" | plot == "NB3" | plot == "NB4", "H", trt)]
+sv[, trt := as.character(NA)]
+sv[, trt := fifelse(plot %in% c("BH1","BH2","BH3","BH4"), "H", trt)]
+sv[, trt := fifelse(plot %in% c("BC1","BC2","BC3","BC4"), "C", trt)]
+sv[, trt := fifelse(plot %in% c("NB1","NB2","NB3","NB4"), "H", trt)]
 
-sv_combined$measurement <- NA
-sv_combined[, measurement := ifelse(avg == "Avg(1)", "moisture", measurement)]
-sv_combined[, measurement := ifelse(avg == "Avg(2)", "permitivity", measurement)]
-sv_combined[, measurement := ifelse(avg == "Avg(3)", "temp", measurement)]
-sv_combined[, measurement := ifelse(avg == "Avg(4)", "EC", measurement)]
 
-# Replace sv with the combined table for downstream processing
-sv <- sv_combined
+sv[, measurement := as.character(NA)]
+sv[, measurement := fifelse(avg == "Avg.1.", "moisture", measurement)]
+sv[, measurement := fifelse(avg == "Avg.2.", "permitivity", measurement)]
+sv[, measurement := fifelse(avg == "Avg.3.", "temp", measurement)]
+sv[, measurement := fifelse(avg == "Avg.4.", "EC", measurement)]
 
-# Continue with temp/moisture subsetting as before
-temp.sv <- subset(sv, measurement == "temp")
-moisture.sv <- subset(sv, measurement == "moisture")
-ec.sv <- subset(sv, measurement == "EC")
+# Subset by measurement type
+temp.sv <- sv[measurement == "temp"]
+moisture.sv <- sv[measurement == "moisture"]
+ec.sv <- sv[measurement == "EC"]
+
+# Inspect to confirm parsing worked
+head(sv[, .(TIMESTAMP, plot, depth, avg, measurement, num)])
 ```
-
 
 
 # Breakup variable name so we can extract plot and sensor info
