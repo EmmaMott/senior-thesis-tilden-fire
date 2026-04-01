@@ -229,6 +229,32 @@ temp.sv %>%
   )
 ```
 
+# Figure 1 with overlapping
+```{r}
+# Overlapping density plot by depth and treatment
+
+temp.sv |>
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4")) |>
+  ggplot(aes(x = num, fill = plot, color = plot)) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Density",
+    title = "Nonburned Plots Temperature Distribution",
+    fill = "Plot",
+    color = "Plot"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+```
+
 # Figure 2: Average NB 
 ```{r}
 nonburnt_avg <- temp.sv %>%
@@ -396,6 +422,59 @@ temp.sv %>%
     axis.title = element_text(size = 12),
     strip.text = element_text(size = 11, face = "italic")
   )
+```
+
+# Figure 3 overlapping
+```{r}
+temp.sv |>
+  filter(plot %in% c("BC1", "BC2", "BC3", "BC4", "BH2", "BH3", "BH4")) |>
+  ggplot(aes(x = num, fill = plot, color = plot)) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Density",
+    title = "Burned Plots Temperature Distribution",
+    fill = "Plot",
+    color = "Plot"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+temp.sv |>
+  filter(plot %in% c("BC1", "BC2", "BH2")) |>
+  ggplot(aes(x = num, fill = plot, color = plot)) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ depth) +
+  labs(
+    x = "Temperature (°C)",
+    y = "Density",
+    title = "High Slope Burned Plots Temperature Distribution",
+    fill = "Plot",
+    color = "Plot"
+  ) +
+  theme_bw() +
+  theme(
+    legend.text = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    strip.text = element_text(size = 11, face = "italic")
+  )
+
+
+temp.sv |>
+  filter(plot %in% c("BC3", "BH3", "BC4", "BH4")) |>
+  ggplot(aes(x = num, fill = plot, color = plot)) +
+  geom_density(alpha = 0.4)+
+  facet_wrap(~ depth) +
+  labs(x= "Temperature", y = "Density", title = "Low Slope Burned Plots Temperature Distribution", fill = "Plot", color = "Plot") +
+  theme_bw() +
+  theme(legend.text = element_text(size = 12), axis.text = element_text(size = 10), axis.title = element_text(size = 12), strip.text = element_text(size = 11, face = "italic"))
 ```
 
 # Figure 4: Averaged burned plots
@@ -604,11 +683,13 @@ temp_night <- temp.sv %>%
 
 # Combine
 temp_windows <- rbind(temp_day, temp_night)
+temp_windows <- temp_windows |>
+  mutate(burnstatus = ifelse(plot %in% c("NB1", "NB2", "NB3", "NB4"), "Unburned", "Burned"))
 
 # Overlapping density plot by depth and treatment
 ggplot(temp_windows, aes(x = num, fill = window, color = window)) +
-  geom_density(alpha = 0.4, size = 1) +
-  facet_grid(depth ~ trt) +
+  geom_density(alpha = 0.4, color= NA) +
+  facet_grid(depth ~ burnstatus) +
   labs(
     x = "Temperature (°C)",
     y = "Density",
@@ -626,7 +707,7 @@ ggplot(temp_windows, aes(x = num, fill = window, color = window)) +
 
 # Optional: summary stats by window, depth, treatment
 window_summary <- temp_windows %>%
-  group_by(window, depth, trt) %>%
+  group_by(window, depth, burnstatus) %>%
   summarise(
     mean_temp = mean(num, na.rm = TRUE),
     sd_temp = sd(num, na.rm = TRUE),
