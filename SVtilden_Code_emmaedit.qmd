@@ -126,29 +126,16 @@ temp.sv <- temp.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na
 moisture.sv <- moisture.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
 ec.sv <- ec.sv %>% filter(!is.na(num) & !is.na(depth) & !is.na(trt) & !is.na(PP))
 
-# Filter for H and C treatments separately
-#t_h_sv <- temp.sv %>% filter(trt == "H")
-#m_h_sv <- moisture.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
-#t_c_sv <- temp.sv %>% filter(trt == "C")
-#m_c_sv <- moisture.sv %>% filter(trt == "C") %>% mutate(PP = as.double(PP))
-#e_h_sv <- ec.sv %>% filter(trt == "H") %>% mutate(PP = as.double(PP))
-#e_c_sv <- ec.sv %>% filter(trt == "C")
-
-# Join H and C datasets based on TIMESTAMP, depth, and PP
-#t_diff_sv <- t_h_sv %>%
-#  inner_join(t_c_sv, by = c("TIMESTAMP", "depth", "PP")) %>%
-#  mutate(diff_H_C = num.x - num.y) %>%  # Calculate differences for each depth
-#  select(TIMESTAMP, depth, PP, diff_H_C)  # Select relevant column
-
-#tempdiffbymoisture <- t_diff_sv %>%
- # inner_join(m_h_sv, by = c("TIMESTAMP", "depth", "PP")) %>% 
-  #select(TIMESTAMP, depth, PP, diff_H_C, num)
 
 temp_filtered_Burned <- temp.sv %>% filter(PP %in% 1:4)
 moisture_filtered_Burned <- moisture.sv %>% filter(PP %in% 1:4)
 
 temp_filtered_Unburned <- temp.sv %>% filter(PP %in% 5:8)
 moisture_filtered_Unburned <- moisture.sv %>% filter(PP %in% 5:8)
+
+#fixing timestamp
+temp.sv <- temp.sv |>
+  mutate(TIMESTAMP = as.POSIXct(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "America/Los_Angeles"))
 ```
 
 # Figure 1: histograms of nonburned plot temps broken up
@@ -643,13 +630,18 @@ window_summary <- temp_windows %>%
   summarise(
     mean_temp = mean(num, na.rm = TRUE),
     sd_temp = sd(num, na.rm = TRUE),
+    max_temp = max(num, na.rm =TRUE),
     n = n(),
     .groups = "drop"
   )
 
-window_summary
+window_summary |>
+  print(n=24)
 ```
 
+
+
+# OLD CODE: IGNORE FROM HERE TO END
 
 # Temp diff between burned and unburned 
 ```{r, fig.width=16, fig.height=10}
