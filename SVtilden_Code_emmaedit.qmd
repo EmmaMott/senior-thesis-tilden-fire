@@ -549,6 +549,99 @@ temp_diff |>
   theme_bw(base_size = 50)
 ```
 
+# Water Year Analysis
+```{r}
+
+temp.sv <- temp.sv |>
+  mutate(water_year = ifelse(TIMESTAMP >= as.POSIXct("2024-11-12") & TIMESTAMP < as.POSIXct("2025-11-12"), "Water Year 1", 
+                           ifelse(TIMESTAMP >= as.POSIXct("2025-11-12") & TIMESTAMP < as.POSIXct("2026-11-12"), "Water Year 2", NA))) |>
+  filter(!is.na(water_year))
+
+temp.sv$water_year <- factor(temp.sv$water_year, levels = c("Water Year 1", "Water Year 2"))
+
+# Create aligned water year data for overlaying
+temp.sv_wy <- temp.sv %>%
+  filter(!is.na(water_year)) %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  mutate(
+    # Extract month and day-of-year for alignment
+    month_num = month(TIMESTAMP),
+    # Convert to "water year month" (Nov=11, Dec=12, Jan=1, ..., Apr=4 becomes 1-5)
+    wy_month = ifelse(month_num >= 11, month_num - 10, month_num + 2)
+  ) %>%
+  filter(wy_month >= 1 & wy_month <= 6) %>%  # Keep only Nov-Apr
+  group_by(water_year, depth, burnstatus, wy_month) %>%
+  summarise(mean_temp = mean(num, na.rm = TRUE), .groups = "drop")
+
+# Plot both water years overlaid
+ggplot(temp.sv_wy, aes(x = wy_month, y = mean_temp, color = water_year, linetype = water_year)) +
+  geom_line(linewidth = 3) +
+  geom_point(size = 3) +
+  facet_grid(depth ~ burnstatus) +
+  scale_x_continuous(
+    breaks = 1:6,
+    labels = c("Nov", "Dec", "Jan", "Feb", "Mar", "Apr")
+  ) +
+  labs(
+    x = "Month",
+    y = "Temperature (°C)",
+    title = "Temperature Comparison: Water Year 1 vs Water Year 2",
+    color = "Water Year",
+    linetype = "Water Year"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+# Water Year Analysis - Temperature Difference (Burned - Nonburned)
+temp_wy <- temp.sv |>
+  mutate(water_year = ifelse(TIMESTAMP >= as.POSIXct("2024-11-12") & TIMESTAMP < as.POSIXct("2025-04-06"), "Water Year 1", 
+                           ifelse(TIMESTAMP >= as.POSIXct("2025-11-12") & TIMESTAMP < as.POSIXct("2026-04-06"), "Water Year 2", NA))) |>
+  filter(!is.na(water_year))
+
+temp_wy$water_year <- factor(temp_wy$water_year, levels = c("Water Year 1", "Water Year 2"))
+
+# Create aligned water year data with burned-nonburned differences
+temp_wy_diff <- temp_wy %>%
+  filter(!is.na(water_year)) %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  group_by(TIMESTAMP, depth, water_year, burnstatus) %>%
+  summarise(mean_temp = mean(num, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = burnstatus, values_from = mean_temp) %>%
+  filter(!is.na(Burned) & !is.na(Unburned)) %>%
+  mutate(
+    temp_diff = Burned - Unburned,
+    month = month(TIMESTAMP)) %>%
+  filter(month >= 11 | month <= 4) # Keep only Nov-Apr
+
+# Plot both water years overlaid with 0 baseline
+temp_wy_diff |>
+  ggplot(aes(x = month, y = temp_diff, color = water_year, linetype = water_year)) +
+  geom_line(linewidth = 3) +
+  geom_point(size = 3) +
+  facet_grid(depth ~ .) +
+  scale_x_continuous(
+    breaks = c(11, 12, 1, 2, 3, 4),
+    labels = c("Nov", "Dec", "Jan", "Feb", "Mar", "Apr")
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    x = "Month",
+    y = "Temperature Difference (Burned - Nonburned)",
+    title = "Temperature Difference Comparison: Water Year 1 vs Water Year 2",
+    color = "Water Year",
+    linetype = "Water Year"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom")
+
+```
+
 # Summary statistics function and calculations
 ``` {r}
 data_summary <- function(data, varname, groupnames){
