@@ -540,6 +540,7 @@ p_diff
 temp_diff |>
   ggplot(aes(x = diff_burn_nonburn)) +
   geom_density(fill = "purple", color = "purple") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
   facet_wrap(~ depth) +
   labs(
     x = "Temperature Difference (Burned - Nonburned)",
@@ -642,44 +643,41 @@ temp_wy_diff |>
 
 ```
 
-# Summary statistics function and calculations
+# Summary statistics for temperature 
 ``` {r}
-data_summary <- function(data, varname, groupnames){
-  require(plyr)
-  summary_func <- function(x, col){
-    c(mean = mean(x[[col]], na.rm=TRUE),
-      sd = sd(x[[col]], na.rm=TRUE))
-  }
-  data_sum<-ddply(data, groupnames, .fun=summary_func,
-                  varname)
-  data_sum <- rename(data_sum, c("mean" = varname))
-  return(data_sum)
-}
 
-# Convert TIMESTAMP to datetime if it's not already
-temp.sv$TIMESTAMP <- as.POSIXct(temp.sv$TIMESTAMP)
-
-# Ensure depth, trt, and PP are factors if they are categorical
-temp.sv$depth <- as.factor(temp.sv$depth)
-temp.sv$trt <- as.factor(temp.sv$trt)
-temp.sv$PP <- as.factor(temp.sv$PP)
-
-
-# Step 1: Calculate summary statistics for each group
-summary_sv <- temp.sv %>%
-  dplyr::group_by(TIMESTAMP, depth, trt, PP) %>%
-  dplyr::summarise(
-    num = mean(num, na.rm = TRUE),  # Calculate mean of 'num' within each group
+# Summary statistics by burnstatus and depth
+temp_summary <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  filter(!is.na(num) & num != 0) %>%
+  group_by(depth, burnstatus) %>%
+  summarise(
+    n = n(),
+    mean = mean(num, na.rm = TRUE),
+    median = median(num, na.rm = TRUE),
+    sd = sd(num, na.rm = TRUE),
+    min = min(num, na.rm = TRUE),
+    max = max(num, na.rm = TRUE),
+    .groups = "drop"
   )
 
-# Step 2: Calculate overall mean, sd, and se values per group (TIMESTAMP, depth, trt)
-summary_final_sv <- summary_sv %>%
-  dplyr::group_by(TIMESTAMP, depth, trt) %>%
-  dplyr::summarise(
-    mean = mean(num, na.rm = TRUE),  # Calculate mean of 'mean' within each group
-    sd = sd(num, na.rm = TRUE),      # Calculate sd of 'num' within each group
-    se = sd(num, na.rm = TRUE) / sqrt(sum(!is.na(num)))  # Calculate se of 'num' within each group
-  )
+temp_summary
+
+# Perform t-tests comparing burned vs nonburned by depth
+t_test_results <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  filter(!is.na(num) & !is.na(depth)) %>%
+  group_by(depth) %>%
+  summarise(
+    t_statistic = t.test(num ~ burnstatus)$statistic,
+    p_value = t.test(num ~ burnstatus)$p.value,
+    mean_burned = mean(num[burnstatus == "Burned"], na.rm = TRUE),
+    mean_unburned = mean(num[burnstatus == "Unburned"], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(significant = ifelse(p_value < 0.05, "Yes", "No"))
+
+t_test_results
 ```
 
 # seperating into day and night windows
@@ -911,6 +909,7 @@ moisture_diff |>
 moisture_diff |>
   ggplot(aes(x = diff_burn_nonburn)) +
   geom_density(fill = "purple", color = "purple") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
   facet_wrap(~ depth) +
   labs(
     x = "Moisture Difference (Burned - Nonburned)",
@@ -918,4 +917,315 @@ moisture_diff |>
     title = "Moisture Difference Distribution (Burned vs Nonburned)"
   ) +
   theme_bw(base_size = 50)
+```
+
+# Summary statistics for moisture 
+```{r}
+# Summary statistics by burnstatus and depth (excluding zeros)
+moisture_summary <- moisture.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  filter(!is.na(num) & num != 0) %>%
+  group_by(depth, burnstatus) %>%
+  summarise(
+    n = n(),
+    mean = mean(num, na.rm = TRUE),
+    median = median(num, na.rm = TRUE),
+    sd = sd(num, na.rm = TRUE),
+    min = min(num, na.rm = TRUE),
+    max = max(num, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+moisture_summary
+
+# Perform t-tests comparing burned vs nonburned by depth (excluding zeros)
+t_test_moisture <- moisture.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  filter(!is.na(num) & num != 0 & !is.na(depth)) %>%
+  group_by(depth) %>%
+  summarise(
+    t_statistic = t.test(num ~ burnstatus)$statistic,
+    p_value = t.test(num ~ burnstatus)$p.value,
+    mean_burned = mean(num[burnstatus == "Burned"], na.rm = TRUE),
+    mean_unburned = mean(num[burnstatus == "Unburned"], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(significant = ifelse(p_value < 0.05, "Yes", "No"))
+
+t_test_moisture
+```
+
+# Diurnal patterns 
+```{r}
+# Extract first day of each month and plot diurnal patterns
+temp_first_day <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  mutate(
+    date = as.Date(TIMESTAMP),
+    month_year = floor_date(TIMESTAMP, "month")
+  ) %>%
+  group_by(month_year, depth) %>%
+  filter(date == min(date)) %>%  # Keep only first day of each month
+  ungroup() %>%
+  mutate(
+    hour = hour(TIMESTAMP),
+    month_label = format(date, "%B"),
+    year = year(TIMESTAMP)
+  )
+
+# Plot diurnal patterns by depth and burnstatus
+temp_first_day |>
+  filter(month_label == "March") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "March Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# January
+```{r}
+temp_first_day |>
+  filter(month_label == "January") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "January Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# February
+```{r}
+temp_first_day |>
+  filter(month_label == "February") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "February Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# April
+```{r}
+temp_first_day |>
+  filter(month_label == "April") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "April Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# May
+
+```{r}
+temp_first_day |>
+  filter(month_label == "May") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "May Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# June
+
+```{r}
+temp_first_day |>
+  filter(month_label == "June") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "June Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# July
+```{r}
+temp_first_day |>
+  filter(month_label == "July") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "July Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# August
+```{r}
+temp_first_day |>
+  filter(month_label == "August") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "August Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# September
+
+```{r}
+temp_first_day |>
+  filter(month_label == "September") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "September Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# October
+
+```{r}
+temp_first_day |>
+  filter(month_label == "October") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "October Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# November
+
+```{r}
+temp_first_day |>
+  filter(month_label == "November") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "November Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+```
+
+# December
+
+```{r}
+temp_first_day |>
+  filter(month_label == "December") |> 
+  ggplot(aes(x = hour, y = num, color = burnstatus)) +
+  geom_line(linewidth = 1) +
+  facet_grid(year ~ depth) +
+  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+  labs(
+    x = "Hour of Day",
+    y = "Temperature (°C)",
+    title = "December Diurnal Temperature",
+    color = "Burn Status"
+  ) +
+  theme_bw(base_size = 30) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
 ```
