@@ -486,7 +486,7 @@ temp.sv |>
     fill = "Burn Status",
     color = "Burn Status"
   ) +
-  theme_bw(base_size = 20)
+  theme_bw(base_size = 40)
 ```
 
 # Figure 6: Average temperature in burned and unburned plots by depth through time
@@ -641,96 +641,6 @@ temp_wy_diff |>
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom")
 
-```
-
-# Summary statistics for temperature 
-``` {r}
-
-# Summary statistics by burnstatus and depth
-temp_summary <- temp.sv %>%
-  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
-  filter(!is.na(num) & num != 0) %>%
-  group_by(depth, burnstatus) %>%
-  summarise(
-    n = n(),
-    mean = mean(num, na.rm = TRUE),
-    median = median(num, na.rm = TRUE),
-    sd = sd(num, na.rm = TRUE),
-    min = min(num, na.rm = TRUE),
-    max = max(num, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-temp_summary
-
-# Perform t-tests comparing burned vs nonburned by depth
-t_test_results <- temp.sv %>%
-  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
-  filter(!is.na(num) & !is.na(depth)) %>%
-  group_by(depth) %>%
-  summarise(
-    t_statistic = t.test(num ~ burnstatus)$statistic,
-    p_value = t.test(num ~ burnstatus)$p.value,
-    mean_burned = mean(num[burnstatus == "Burned"], na.rm = TRUE),
-    mean_unburned = mean(num[burnstatus == "Unburned"], na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  mutate(significant = ifelse(p_value < 0.05, "Yes", "No"))
-
-t_test_results
-```
-
-# seperating into day and night windows
-```{r}
-# Partition timeseries into daytime and nighttime windows
-temp.sv$hour <- hour(temp.sv$TIMESTAMP)
-
-# Define windows: daytime 6:00-20:00, nighttime 20:00-6:00
-temp_day <- temp.sv %>%
-  filter(hour >= 6 & hour < 20, !is.na(num), !is.na(depth)) %>%
-  mutate(window = "Daytime (6:00-20:00)")
-
-temp_night <- temp.sv %>%
-  filter(hour >= 20 | hour < 6, !is.na(num), !is.na(depth)) %>%
-  mutate(window = "Nighttime (20:00-6:00)")
-
-# Combine
-temp_windows <- rbind(temp_day, temp_night)
-temp_windows <- temp_windows |>
-  mutate(burnstatus = ifelse(plot %in% c("NB1", "NB2", "NB3", "NB4"), "Unburned", "Burned"))
-
-# Overlapping density plot by depth and treatment
-ggplot(temp_windows, aes(x = num, fill = window, color = window)) +
-  geom_density(alpha = 0.4, color= NA) +
-  facet_grid(depth ~ burnstatus) +
-  labs(
-    x = "Temperature (°C)",
-    y = "Density",
-    title = "Baseline Temperature Distribution: Daytime vs Nighttime",
-    fill = "Time Window",
-    color = "Time Window"
-  ) +
-  theme_bw() +
-  theme(
-    legend.text = element_text(size = 12),
-    axis.text = element_text(size = 10),
-    axis.title = element_text(size = 12),
-    strip.text = element_text(size = 11, face = "italic")
-  )
-
-# Optional: summary stats by window, depth, treatment
-window_summary <- temp_windows %>%
-  group_by(window, depth, burnstatus) %>%
-  summarise(
-    mean_temp = mean(num, na.rm = TRUE),
-    sd_temp = sd(num, na.rm = TRUE),
-    max_temp = max(num, na.rm =TRUE),
-    n = n(),
-    .groups = "drop"
-  )
-
-window_summary |>
-  print(n=24)
 ```
 
 
@@ -919,74 +829,117 @@ moisture_diff |>
   theme_bw(base_size = 50)
 ```
 
-# Summary statistics for moisture 
+# Summary statistics for temp
 ```{r}
-# Summary statistics by burnstatus and depth (excluding zeros)
-moisture_summary <- moisture.sv %>%
+# Checking assumptions for t test
+
+# 3. Q-Q plots by season to visualize normality
+temp.sv %>%
   filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
-  filter(!is.na(num) & num != 0) %>%
-  group_by(depth, burnstatus) %>%
+  mutate(
+    season = case_when(
+      month(TIMESTAMP) %in% c(11, 12) ~ "Fall",
+      month(TIMESTAMP) %in% c(1, 2, 3) ~ "Winter",
+      month(TIMESTAMP) %in% c(4, 5, 6) ~ "Spring",
+      month(TIMESTAMP) %in% c(7, 8, 9) ~ "Summer"
+    )
+  ) %>%
+  filter(!is.na(num) & !is.na(season)) %>%
+  ggplot(aes(sample = num)) +
+  stat_qq() +
+  stat_qq_line() +
+  facet_wrap(~ season) +
+  labs(
+    title = "Q-Q Plots: Normality Assessment by Season",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_bw(base_size = 14)
+
+
+# Summary statistics: Average temp by season and burnstatus
+temp_stats <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  mutate(
+    season = case_when(
+      month(TIMESTAMP) %in% c(11, 12) ~ "Fall",
+      month(TIMESTAMP) %in% c(1, 2, 3) ~ "Winter",
+      month(TIMESTAMP) %in% c(4, 5, 6) ~ "Spring",
+      month(TIMESTAMP) %in% c(7, 8, 9) ~ "Summer"
+    ),
+    year = year(TIMESTAMP)
+  ) %>%
+  filter(!is.na(num) & !is.na(season)) %>%
+  group_by(season, year, burnstatus) %>%
   summarise(
     n = n(),
-    mean = mean(num, na.rm = TRUE),
-    median = median(num, na.rm = TRUE),
-    sd = sd(num, na.rm = TRUE),
-    min = min(num, na.rm = TRUE),
-    max = max(num, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-moisture_summary
-
-# Perform t-tests comparing burned vs nonburned by depth (excluding zeros)
-t_test_moisture <- moisture.sv %>%
-  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
-  filter(!is.na(num) & num != 0 & !is.na(depth)) %>%
-  group_by(depth) %>%
-  summarise(
-    t_statistic = t.test(num ~ burnstatus)$statistic,
-    p_value = t.test(num ~ burnstatus)$p.value,
-    mean_burned = mean(num[burnstatus == "Burned"], na.rm = TRUE),
-    mean_unburned = mean(num[burnstatus == "Unburned"], na.rm = TRUE),
+    mean_temp = mean(num, na.rm = TRUE),
+    median_temp = median(num, na.rm = TRUE),
+    sd_temp = sd(num, na.rm = TRUE),
+    se_temp = sd_temp / sqrt(n),
+    max_temp = max(num, na.rm = TRUE),
+    min_temp = min(num, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  mutate(significant = ifelse(p_value < 0.05, "Yes", "No"))
+    arrange(year, season)
 
-t_test_moisture
+temp_stats
+
+# Non-parametric Mann-Whitney U test (alternative to t-test)
+# Compare burned vs unburned for each season-year combo
+
+temp_season_mannwhitney <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  mutate(
+    season = case_when(
+      month(TIMESTAMP) %in% c(11, 12) ~ "Fall",
+      month(TIMESTAMP) %in% c(1, 2, 3) ~ "Winter",
+      month(TIMESTAMP) %in% c(4, 5, 6) ~ "Spring",
+      month(TIMESTAMP) %in% c(7, 8, 9) ~ "Summer"
+    ),
+    year = year(TIMESTAMP)
+  ) %>%
+  filter(!is.na(num) & !is.na(season)) %>%
+  group_by(season, year) %>%
+  summarise(
+    u_stat = wilcox.test(num ~ burnstatus)$statistic,
+    p_value = wilcox.test(num ~ burnstatus)$p.value,
+    median_burned = median(num[burnstatus == "Burned"], na.rm = TRUE),
+    median_unburned = median(num[burnstatus == "Unburned"], na.rm = TRUE),
+    diff = median_burned - median_unburned,
+    .groups = "drop"
+  ) %>%
+  mutate(significant = ifelse(p_value < 0.05, "Yes", "No")) %>%
+  arrange(year, season)
+
+temp_season_mannwhitney
+
+
 ```
 
 # Diurnal patterns 
 ```{r}
 # Extract first day of each month and plot diurnal patterns
-temp_first_day <- temp.sv %>%
+temp_april <- temp.sv %>%
   filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
   mutate(
-    date = as.Date(TIMESTAMP),
-    month_year = floor_date(TIMESTAMP, "month")
+    date = as.Date(TIMESTAMP, tz= "America/Los_Angeles"),
   ) %>%
-  group_by(month_year, depth) %>%
-  filter(date == min(date)) %>%  # Keep only first day of each month
-  ungroup() %>%
-  mutate(
-    hour = hour(TIMESTAMP),
-    month_label = format(date, "%B"),
-    year = year(TIMESTAMP)
-  )
+  filter(date == "2025-04-01") 
 
-# Plot diurnal patterns by depth and burnstatus
-temp_first_day |>
-  filter(month_label == "March") |> 
-  ggplot(aes(x = hour, y = num, color = burnstatus)) +
-  geom_line(linewidth = 1) +
-  facet_grid(year ~ depth) +
-  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+
+
+temp_april |>
+  ggplot(aes(x = TIMESTAMP, y = num, color = burnstatus)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  facet_grid(. ~ depth) +
   labs(
-    x = "Hour of Day",
+    x = "Time",
     y = "Temperature (°C)",
-    title = "March Diurnal Temperature",
+    title = "Temperature on April 1st by Burn Status and Depth",
     color = "Burn Status"
   ) +
-  theme_bw(base_size = 30) +
+  theme_bw(base_size = 50)+
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom"
@@ -995,19 +948,26 @@ temp_first_day |>
 
 # January
 ```{r}
-temp_first_day |>
-  filter(month_label == "January") |> 
-  ggplot(aes(x = hour, y = num, color = burnstatus)) +
-  geom_line(linewidth = 1) +
-  facet_grid(year ~ depth) +
-  scale_x_continuous(breaks = seq(0, 23, by = 6)) +
+temp_jan <- temp.sv %>%
+  filter(plot %in% c("NB1", "NB2", "NB3", "NB4", "BC1", "BC2", "BC3", "BC4")) %>%
+  mutate(
+    date = as.Date(TIMESTAMP, tz= "America/Los_Angeles"),
+  ) %>%
+  filter(date == "2026-01-01") 
+
+
+
+temp_jan |>
+  ggplot(aes(x = TIMESTAMP, y = num, color = burnstatus)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  facet_grid(. ~ depth) +
   labs(
-    x = "Hour of Day",
+    x = "Time",
     y = "Temperature (°C)",
-    title = "January Diurnal Temperature",
+    title = "Temperature on Jan 1st by Burn Status and Depth",
     color = "Burn Status"
   ) +
-  theme_bw(base_size = 30) +
+  theme_bw(base_size = 50)+
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom"
