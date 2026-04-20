@@ -520,8 +520,8 @@ temp_diff <- temp.sv %>%
   filter(!is.na(Burned) & !is.na(Unburned)) %>%
   mutate(diff_burn_nonburn = Burned - Unburned)
 
-# quick paired plot (keep y-limits -10..10)
-p_diff <- temp_diff %>%
+# vertical view 
+temp_diff %>%
   ggplot(aes(x = TIMESTAMP, y = diff_burn_nonburn, group = depth, color = depth)) +
   geom_line(size = 0.6) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
@@ -532,7 +532,19 @@ p_diff <- temp_diff %>%
   theme_bw()+
   theme(axis.text.x = element_text(angle = -45, hjust = 0))
 
-p_diff
+# Horizontal view
+temp_diff %>%
+  ggplot(aes(x = TIMESTAMP, y = diff_burn_nonburn, group = depth, color = depth)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  geom_point(size = 1) +
+  facet_grid(. ~ depth) +
+  coord_cartesian(ylim = c(-10, 10)) +
+  labs(x = "Date", y = "Temperature Difference (Burned - Nonburned)", title = "Temp Diff (Burned vs Nonburned)") +
+  theme_bw(base_size = 30)+
+  theme(axis.text.x = element_text(angle = -45, hjust = 0),
+  legend.position = "none")
+
+
 ```
 
 # Figure 8: Average temp difference distributions by depth
